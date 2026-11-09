@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador de Votos</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <main>
+        <h1>Simulador de Votos Fictício</h1>
+        <p>Simulação de apuração eleitoral fictícia</p>
+
+        <section id="configuracao">
+            <h2>Configurar Votação</h2>
+
+            <label>Nome da Votação</label>
+            <input type="text" id="titulo" placeholder="Ex: Eleição presidencial">
+
+            <label>Participantes (um por linha)</label>
+            <textarea id="participantes" rows="5" placeholder="Candidato A&#10;Candidato B&#10;Candidato C"></textarea>
+
+            <label>Total de Votos</label>
+            <input type="number" id="totalVotos" value="100000" min="1">
+
+            <label>Tempo de Apuração (Segundos)</label>
+            <input type="number" id="tempo" value="60" min="1">
+
+            <button onclick="iniciar()">Iniciar Apuração</button>
+
+        </section>
+
+        <section id="apuracao" class="oculto">
+            <h2 id="tituloApuracao"></h2>
+
+            <h3 id="porcentagemApurada">0% apurado</h3>
+            <div class="barra-geral">
+                <div id="progresso"></div>
+            </div>
+
+            <div id="resultados"></div>
+
+            <h2 id="vencedor"></h2>
+
+            <button onclick="location.reload">Nova Votação</button>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy Desenvolvido por Davi Afonso</p>
+    </footer>
+
+    <script src="mapa_brasil.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>
