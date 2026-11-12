@@ -1,3 +1,4 @@
+
 "use strict";
 
 let candidatos = [];
@@ -13,6 +14,25 @@ let ufSelecionada = null;
 
 const cores = ["#38bdf8", "#f97316", "#a855f7", "#22c55e", "#eab308", "#ef4444"];
 const el = id => document.getElementById(id);
+
+const UFS = [
+    ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"],
+    ["BA", "Bahia"], ["CE", "Ceará"], ["DF", "Distrito Federal"], ["ES", "Espírito Santo"],
+    ["GO", "Goiás"], ["MA", "Maranhão"], ["MT", "Mato Grosso"], ["MS", "Mato Grosso do Sul"],
+    ["MG", "Minas Gerais"], ["PA", "Pará"], ["PB", "Paraíba"], ["PR", "Paraná"],
+    ["PE", "Pernambuco"], ["PI", "Piauí"], ["RJ", "Rio de Janeiro"], ["RN", "Rio Grande do Norte"],
+    ["RS", "Rio Grande do Sul"], ["RO", "Rondônia"], ["RR", "Roraima"], ["SC", "Santa Catarina"],
+    ["SP", "São Paulo"], ["SE", "Sergipe"], ["TO", "Tocantins"]
+];
+
+// Pesos apenas ilustrativos, não representam dados oficiais do TSE.
+const PESOS_UF = {
+    AC: 0.4, AL: 1.5, AP: 0.4, AM: 2.0, BA: 7.0, CE: 4.5,
+    DF: 1.5, ES: 2.0, GO: 3.2, MA: 3.0, MT: 1.6, MS: 1.3,
+    MG: 10.5, PA: 4.0, PB: 2.1, PR: 5.5, PE: 4.5, PI: 1.5,
+    RJ: 8.0, RN: 1.7, RS: 5.5, RO: 0.9, RR: 0.3, SC: 3.5,
+    SP: 22.0, SE: 1.1, TO: 0.8
+};
 
 function botaoAcao(texto, acao) {
     let botao = el("acaoTurno");
@@ -37,31 +57,103 @@ function ocultarAcao() {
 
 function iniciar() {
     if (estado === "apurando") return;
-    const nomes = el("participantes").value.split("\n")
-        .map(nome => nome.trim()).filter(Boolean);
+    const nomes = el("participantes").value.split("\n").map(n => n.trim()).filter(Boolean);
     const votos = Number(el("totalVotos").value);
     const segundos = Number(el("tempo").value);
-
-    if (nomes.length < 2 || !Number.isSafeInteger(votos) ||
-        votos < nomes.length || !Number.isFinite(segundos) ||
-        segundos < 1 || !Number.isSafeInteger(Math.ceil(segundos * 2))) {
-        alert("Informe pelo menos 2 participantes, um total inteiro de votos igual ou maior que o número de participantes e tempo válido (mínimo de 1 segundo).");
+    if (nomes.length < 2 || !Number.isSafeInteger(votos) || votos < nomes.length ||
+        !Number.isFinite(segundos) || segundos < 1 ||
+        !Number.isSafeInteger(Math.ceil(segundos * 2))) {
+        alert("Informe pelo menos 2 participantes, votos inteiros e tempo válido.");
         return;
     }
-    if (new Set(nomes.map(nome => nome.toLocaleLowerCase("pt-BR"))).size !== nomes.length) {
-        alert("Use nomes diferentes para identificar os participantes.");
+    if (new Set(nomes.map(n => n.toLocaleLowerCase("pt-BR"))).size !== nomes.length) {
+        alert("Os participantes devem ter nomes diferentes.");
         return;
     }
-
     total = votos;
     tempo = segundos;
     titulo = el("titulo").value.trim() || "Apuração de votos";
     turno = 1;
     finalistas = [];
-    candidatos = nomes.map((nome, i) => ({ nome, cor: i < cores.length ? cores[i] : `hsl(${(i * 137.508) % 360} 70% 55%)`, votos: 0 }));
+    ufSelecionada = null;
+    candidatos = nomes.map((nome, i) => ({
+        nome, cor: cores[i] || `hsl(${(i * 137.508) % 360} 70% 55%)`, votos: 0
+    }));
     el("configuracao").classList.add("oculto");
     el("apuracao").classList.remove("oculto");
     apurar();
+}
+
+// Reparte uma quantidade inteira sem criar um registro por voto.
+function repartir(quantidade, pesos) {
+    const soma = pesos.reduce((a, b) => a + b, 0);
+    if (soma <= 0) return pesos.map(() => 0);
+    const parcelas = pesos.map(p => quantidade * p / soma);
+    const resultado = parcelas.map(v => Math.floor(v));
+    let faltam = quantidade - resultado.reduce((a, b) => a + b, 0);
+    const indices = parcelas.map((v, i) => ({ i, resto: v - resultado[i] }))
+        .sort((a, b) => b.resto - a.resto);
+    for (let j = 0; j < faltam; j++) resultado[indices[j].i]++;
+    return resultado;
+}
+
+function prepararEstados() {
+    if (turno === 1 || unidades.length === 0) {
+        const totais = repartir(total, UFS.map(([uf]) => PESOS_UF[uf]));
+        unidades = UFS.map(([uf, nome], i) => ({ uf, nome, total: totais[i] }));
+    }
+
+    unidades.forEach(u => {
+        u.inicio = Math.random() * 0.50;
+        u.fim = Math.min(1, u.inicio + 0.30 + Math.random() * 0.50);
+        u.curva = 0.7 + Math.random() * 1.4;
+
+        // Uma preferência-base por UF; cada bloco recebe variações próprias.
+        const preferencias = candidatos.map(() => 0.5 + Math.random() * 1.5);
+        const tamanhos = repartir(u.total, [1, 1, 1, 1, 1]);
+        u.blocos = tamanhos.map((quantidade, indice) => {
+            const pesos = preferencias.map((peso, i) => {
+                const variacao = 0.25 + Math.random() * 2.3;
+                const tendencia = 1 + Math.sin(indice * 1.5 + i * 2) * 0.35;
+                return peso * variacao * tendencia;
+            });
+            return { total: quantidade, finais: repartir(quantidade, pesos) };
+        });
+        u.finais = candidatos.map((_, i) =>
+            u.blocos.reduce((soma, bloco) => soma + bloco.finais[i], 0)
+        );
+        u.votos = candidatos.map(() => 0);
+        u.apurados = 0;
+        u.concluida = false;
+    });
+}
+
+function apurarEstados(momento) {
+    candidatos.forEach(c => { c.votos = 0; });
+    unidades.forEach(u => {
+        const base = momento >= 1 ? 1 : Math.min(1, Math.max(0,
+            (momento - u.inicio) / (u.fim - u.inicio)));
+        const fracao = base ** u.curva;
+        const meta = momento >= 1 ? u.total : Math.floor(u.total * fracao);
+        u.votos = candidatos.map(() => 0);
+        u.apurados = 0;
+        let restantes = meta;
+        for (const bloco of u.blocos) {
+            const quantidade = Math.min(restantes, bloco.total);
+            restantes -= quantidade;
+            if (quantidade <= 0) continue;
+            // Apuração parcial proporcional dentro do bloco; blocos distintos
+            // produzem oscilações e possíveis viradas no mesmo estado.
+            const votosBloco = quantidade === bloco.total
+                ? bloco.finais : repartir(quantidade, bloco.finais);
+            votosBloco.forEach((v, i) => {
+                u.votos[i] += v;
+                candidatos[i].votos += v;
+            });
+            u.apurados += quantidade;
+        }
+        u.concluida = meta === u.total;
+    });
 }
 
 function apurar() {
@@ -77,12 +169,10 @@ function apurar() {
     const etapas = Math.ceil(tempo * 2);
     atualizar(0);
     atualizarEstados();
-
     intervalo = setInterval(() => {
         etapa++;
-        const momento = Math.min(1, etapa / etapas);
-        apurarEstados(momento);
-        const apurados = candidatos.reduce((soma, c) => soma + c.votos, 0);
+        apurarEstados(Math.min(1, etapa / etapas));
+        const apurados = candidatos.reduce((s, c) => s + c.votos, 0);
         atualizar(apurados);
         atualizarEstados();
         if (etapa >= etapas) {
@@ -93,65 +183,9 @@ function apurar() {
     }, 500);
 }
 
-// As UFs são reais; totais, preferências e ritmos são inteiramente fictícios.
-const UFS = [
-    ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"],
-    ["AM", "Amazonas"], ["BA", "Bahia"], ["CE", "Ceará"],
-    ["DF", "Distrito Federal"], ["ES", "Espírito Santo"],
-    ["GO", "Goiás"], ["MA", "Maranhão"], ["MT", "Mato Grosso"],
-    ["MS", "Mato Grosso do Sul"], ["MG", "Minas Gerais"],
-    ["PA", "Pará"], ["PB", "Paraíba"], ["PR", "Paraná"],
-    ["PE", "Pernambuco"], ["PI", "Piauí"], ["RJ", "Rio de Janeiro"],
-    ["RN", "Rio Grande do Norte"], ["RS", "Rio Grande do Sul"],
-    ["RO", "Rondônia"], ["RR", "Roraima"], ["SC", "Santa Catarina"],
-    ["SP", "São Paulo"], ["SE", "Sergipe"], ["TO", "Tocantins"]
-];
-
-// Reparte inteiros com soma exata e memória proporcional ao número de pesos.
-function repartir(quantidade, pesos) {
-    let restantes = quantidade;
-    let soma = pesos.reduce((a, b) => a + b, 0);
-    return pesos.map((peso, i) => {
-        const valor = i === pesos.length - 1 ? restantes :
-            Math.min(restantes, Math.max(0, Math.floor(restantes * (peso / soma))));
-        restantes -= valor;
-        soma -= peso;
-        return valor;
-    });
-}
-
-function prepararEstados() {
-    if (turno === 1 || unidades.length === 0) {
-        const totais = repartir(total, UFS.map(() => 0.2 + Math.random() * 2));
-        unidades = UFS.map(([uf, nome], i) => ({ uf, nome, total: totais[i] }));
-    }
-    // Mantém o total por UF entre turnos, mas sorteia novas distribuições.
-    unidades.forEach(u => {
-        u.inicio = Math.random() * 0.55;
-        u.fim = u.inicio + 0.2 + Math.random() * (0.8 - u.inicio);
-        u.curva = 0.6 + Math.random() * 1.8;
-        u.finais = repartir(u.total, candidatos.map(() => 0.05 + Math.random() ** 2 * 4));
-        u.votos = candidatos.map(() => 0);
-        u.apurados = 0;
-        u.concluida = false;
-    });
-}
-
-function apurarEstados(momento) {
-    candidatos.forEach(c => { c.votos = 0; });
-    unidades.forEach(u => {
-        const fracao = momento >= 1 ? 1 :
-            Math.min(1, Math.max(0, (momento - u.inicio) / (u.fim - u.inicio))) ** u.curva;
-        u.concluida = fracao >= 1;
-        u.votos = u.finais.map(v => fracao >= 1 ? v : Math.floor(v * fracao));
-        u.apurados = u.votos.reduce((a, b) => a + b, 0);
-        u.votos.forEach((v, i) => { candidatos[i].votos += v; });
-    });
-}
-
 function svgElemento(tag, atributos = {}) {
     const elemento = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    Object.entries(atributos).forEach(([chave, valor]) => elemento.setAttribute(chave, valor));
+    Object.entries(atributos).forEach(([k, v]) => elemento.setAttribute(k, v));
     return elemento;
 }
 
@@ -166,19 +200,19 @@ function criarPainelEstados() {
         const estilo = document.createElement("style");
         estilo.id = "estiloMapa";
         estilo.textContent = `
-            #painelEstados {margin-top:28px}
-            #mapaBrasil {display:block;width:100%;height:auto;max-height:580px}
-            #mapaBrasil .uf {cursor:pointer;stroke:#0f172a;stroke-width:1.2;stroke-linejoin:round;transition:fill .35s}
-            #mapaBrasil .uf:hover,#mapaBrasil .uf:focus {stroke:#fff;stroke-width:2.5;outline:none}
-            #mapaBrasil .selecionada {stroke:#fff;stroke-width:2.5}
-            #mapaBrasil text {font: bold 10px Arial;fill:white;paint-order:stroke;stroke:#0f172a;stroke-width:2.5px;pointer-events:none}
-            #legendaMapa {display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;margin:12px 0}
-            .item-legenda {display:inline-flex;align-items:center;gap:6px;overflow-wrap:anywhere}
-            .cor-legenda {width:12px;height:12px;border-radius:3px;flex-shrink:0;display:inline-block}
-            #detalheUF {background:#0f172a;border-radius:10px;padding:14px;margin-top:12px}
-            #detalheUF h4 {margin:0 0 10px} #detalheUF p {margin:7px 0;font-size:14px}
-            #detalheUF button {margin-top:10px;padding:8px;font-size:13px;width:auto}
-            #resumoEstados,.nota-mapa {color:#94a3b8;font-size:13px}
+            #painelEstados{margin-top:28px}
+            #mapaBrasil{display:block;width:100%;height:auto;max-height:580px}
+            #mapaBrasil .uf{cursor:pointer;stroke:#0f172a;stroke-width:1.2;stroke-linejoin:round;transition:fill .35s}
+            #mapaBrasil .uf:hover,#mapaBrasil .uf:focus{stroke:#fff;stroke-width:2.5;outline:none}
+            #mapaBrasil .selecionada{stroke:#fff;stroke-width:2.5}
+            #mapaBrasil text{font:bold 10px Arial;fill:white;paint-order:stroke;stroke:#0f172a;stroke-width:2.5px;pointer-events:none}
+            #legendaMapa{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;margin:12px 0}
+            .item-legenda{display:inline-flex;align-items:center;gap:6px;overflow-wrap:anywhere}
+            .cor-legenda{width:12px;height:12px;border-radius:3px;flex-shrink:0;display:inline-block}
+            #detalheUF{background:#0f172a;border-radius:10px;padding:14px;margin-top:12px}
+            #detalheUF h4{margin:0 0 10px}#detalheUF p{margin:7px 0;font-size:14px}
+            #detalheUF button{margin-top:10px;padding:8px;font-size:13px;width:auto}
+            #resumoEstados,.nota-mapa{color:#94a3b8;font-size:13px}
         `;
         document.head.append(estilo);
     }
@@ -187,38 +221,50 @@ function criarPainelEstados() {
     tituloMapa.textContent = "Brasil • apuração por UF";
     const resumo = document.createElement("p");
     resumo.id = "resumoEstados";
-    const mapa = svgElemento("svg", {id:"mapaBrasil",viewBox:"0 0 640 625",role:"group","aria-label":"Mapa da apuração por UF. Selecione um estado para ver os votos."});
+    const mapa = svgElemento("svg", { id: "mapaBrasil", viewBox: "0 0 640 625", role: "group",
+        "aria-label": "Mapa da apuração por UF. Selecione um estado para ver os votos." });
     UFS.forEach(([uf, nome]) => {
         const grupo = svgElemento("g");
-        const path = svgElemento("path", {id:`mapa-${uf}`,d:CONTORNOS_UF[uf].d,class:"uf",fill:"#334155",tabindex:"0",role:"button","aria-label":nome,"aria-pressed":"false"});
+        const path = svgElemento("path", { id: `mapa-${uf}`, d: CONTORNOS_UF[uf].d,
+            class: "uf", fill: "#334155", tabindex: "0", role: "button", "aria-label": nome,
+            "aria-pressed": "false" });
         const dica = svgElemento("title");
         path.append(dica);
         const selecionar = () => { ufSelecionada = uf; atualizarEstados(); };
         path.onclick = selecionar;
         path.onkeydown = evento => {
-            if (evento.key === "Enter" || evento.key === " ") {evento.preventDefault();selecionar();}
+            if (evento.key === "Enter" || evento.key === " ") {
+                evento.preventDefault(); selecionar();
+            }
         };
         grupo.append(path);
         if (uf !== "DF") {
-            const [x,y] = CONTORNOS_UF[uf].rotulo;
-            const rotulo = svgElemento("text", {x,y,"text-anchor":"middle","dominant-baseline":"middle"});
+            const [x, y] = CONTORNOS_UF[uf].rotulo;
+            const rotulo = svgElemento("text", { x, y, "text-anchor": "middle", "dominant-baseline": "middle" });
             rotulo.textContent = uf;
             grupo.append(rotulo);
         }
         mapa.append(grupo);
     });
-    // Ampliação do DF para facilitar o toque no celular.
-    const [dx,dy] = CONTORNOS_UF.DF.rotulo;
-    mapa.append(svgElemento("line", {x1:dx,y1:dy,x2:568,y2:410,stroke:"#94a3b8","stroke-dasharray":"3 3"}));
-    const df = svgElemento("circle", {id:"mapa-DF-ampliado",cx:582,cy:410,r:17,class:"uf",fill:"#334155",tabindex:"0",role:"button","aria-label":"Distrito Federal (ampliado)"});
-    df.onclick = () => {ufSelecionada = "DF";atualizarEstados();};
-    df.onkeydown = evento => {if(evento.key === "Enter" || evento.key === " "){evento.preventDefault();df.onclick();}};
-    const dfTexto = svgElemento("text", {x:582,y:414,"text-anchor":"middle"});
+    const [dx, dy] = CONTORNOS_UF.DF.rotulo;
+    mapa.append(svgElemento("line", { x1: dx, y1: dy, x2: 568, y2: 410,
+        stroke: "#94a3b8", "stroke-dasharray": "3 3" }));
+    const df = svgElemento("circle", { id: "mapa-DF-ampliado", cx: 582, cy: 410,
+        r: 17, class: "uf", fill: "#334155", tabindex: "0", role: "button",
+        "aria-label": "Distrito Federal (ampliado)" });
+    df.onclick = () => { ufSelecionada = "DF"; atualizarEstados(); };
+    df.onkeydown = evento => {
+        if (evento.key === "Enter" || evento.key === " ") {
+            evento.preventDefault(); df.onclick();
+        }
+    };
+    const dfTexto = svgElemento("text", { x: 582, y: 414, "text-anchor": "middle" });
     dfTexto.textContent = "DF";
-    mapa.append(df,dfTexto);
+    mapa.append(df, dfTexto);
     const legenda = document.createElement("div");
     legenda.id = "legendaMapa";
-    [...candidatos, {nome:"Sem votos apurados",cor:"#334155"}, {nome:"Empate",cor:"#94a3b8"}].forEach(c => {
+    [...candidatos, { nome: "Sem votos apurados", cor: "#334155" },
+        { nome: "Empate", cor: "#94a3b8" }].forEach(c => {
         const item = document.createElement("span");
         item.className = "item-legenda";
         const cor = document.createElement("span");
@@ -227,7 +273,7 @@ function criarPainelEstados() {
         cor.setAttribute("aria-hidden", "true");
         const nome = document.createElement("span");
         nome.textContent = c.nome;
-        item.append(cor,nome);
+        item.append(cor, nome);
         legenda.append(item);
     });
     const detalhe = document.createElement("div");
@@ -235,34 +281,34 @@ function criarPainelEstados() {
     detalhe.hidden = true;
     const nota = document.createElement("p");
     nota.className = "nota-mapa";
-    nota.textContent = "Toque em uma UF para ver os votos. Cores indicam a liderança parcial; ao concluir, o resultado. Simulação fictícia.";
+    nota.textContent = "Toque em uma UF para ver os votos. As cores indicam a liderança parcial. Simulação fictícia.";
     const fonte = document.createElement("a");
     fonte.href = "https://github.com/henriquemalvar/br-geojson";
     fonte.textContent = "Contornos: IBGE / br-geojson (CC0)";
     fonte.style.cssText = "color:#94a3b8;font-size:11px";
-    painel.append(tituloMapa,resumo,mapa,legenda,detalhe,nota,fonte);
+    painel.append(tituloMapa, resumo, mapa, legenda, detalhe, nota, fonte);
 }
 
 function situacaoUF(u) {
     if (!u.total) return "Sem votos nesta simulação";
     if (u.concluida) return "100% apurado";
     if (!u.apurados) return "Aguardando apuração";
-    // Evita mostrar 100% por arredondamento antes de concluir.
     return Math.min(99.9, u.apurados / u.total * 100).toFixed(1) + "% apurado";
 }
 
 function corResultadoUF(u) {
-    if (!u.apurados) return {cor:"#334155",texto:"Sem votos apurados"};
+    if (!u.apurados) return { cor: "#334155", texto: "Sem votos apurados" };
     const maior = Math.max(...u.votos);
-    const indices = u.votos.map((v,i) => v === maior ? i : -1).filter(i => i >= 0);
-    if (indices.length > 1) return {cor:"#94a3b8",texto:"Empate"};
+    const indices = u.votos.map((v, i) => v === maior ? i : -1).filter(i => i >= 0);
+    if (indices.length > 1) return { cor: "#94a3b8", texto: "Empate" };
     const c = candidatos[indices[0]];
-    return {cor:c.cor,texto:`${u.concluida ? "Venceu" : "Lidera"}: ${c.nome}`};
+    return { cor: c.cor, texto: `${u.concluida ? "Venceu" : "Lidera"}: ${c.nome}` };
 }
 
 function atualizarEstados() {
     const concluidas = unidades.filter(u => u.concluida && u.total > 0).length;
-    el("resumoEstados").textContent = `${concluidas}/${unidades.filter(u => u.total > 0).length} UFs com votos concluídas`;
+    el("resumoEstados").textContent =
+        `${concluidas}/${unidades.filter(u => u.total > 0).length} UFs com votos concluídas`;
     unidades.forEach(u => {
         const resultado = corResultadoUF(u);
         const path = el(`mapa-${u.uf}`);
@@ -274,10 +320,10 @@ function atualizarEstados() {
         path.firstChild.textContent = descricao;
         if (u.uf === "DF") {
             const df = el("mapa-DF-ampliado");
-            df.setAttribute("fill",resultado.cor);
-            df.setAttribute("aria-label",descricao + " Distrito Federal ampliado.");
-            df.setAttribute("aria-pressed",String(ufSelecionada === "DF"));
-            df.classList.toggle("selecionada",ufSelecionada === "DF");
+            df.setAttribute("fill", resultado.cor);
+            df.setAttribute("aria-label", descricao + " Distrito Federal ampliado.");
+            df.setAttribute("aria-pressed", String(ufSelecionada === "DF"));
+            df.classList.toggle("selecionada", ufSelecionada === "DF");
         }
     });
     const detalhe = el("detalheUF");
@@ -343,8 +389,6 @@ function finalizar() {
     const ordenados = [...candidatos].sort((a, b) => b.votos - a.votos);
     const lideres = ordenados.filter(c => c.votos === ordenados[0].votos);
     const mensagem = el("vencedor");
-
-    // Todos os votos são válidos. Exatamente 50% não é maioria absoluta.
     if (ordenados[0].votos > Math.floor(total / 2)) {
         mensagem.textContent = `🏆 Eleito no ${turno}º turno: ${ordenados[0].nome}`;
         return;
@@ -354,7 +398,6 @@ function finalizar() {
             ". Nenhum vencedor definido. Use Nova votação para simular novamente.";
         return;
     }
-
     const corte = ordenados[1].votos;
     const garantidos = ordenados.filter(c => c.votos > corte);
     const empatados = ordenados.filter(c => c.votos === corte);
@@ -408,7 +451,6 @@ function novaVotacao() {
     total = 0;
     tempo = 0;
     titulo = "";
-
     ocultarAcao();
     el("vencedor").textContent = "";
     el("tituloApuracao").textContent = "";
@@ -421,9 +463,7 @@ function novaVotacao() {
 }
 
 function conectarNovaVotacao() {
-    const botao = document.querySelector(
-        '#apuracao button[onclick*="location.reload"]'
-    );
+    const botao = document.querySelector('#apuracao button[onclick*="location.reload"]');
     if (botao) {
         botao.removeAttribute("onclick");
         botao.type = "button";
