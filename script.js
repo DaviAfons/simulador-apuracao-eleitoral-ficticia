@@ -26,6 +26,7 @@ const UFS = [
 ];
 
 // Pesos apenas ilustrativos, não representam dados oficiais do TSE.
+const TOTAL_BLOCOS = 100;
 const PESOS_UF = {
     AC: 0.4, AL: 1.5, AP: 0.4, AM: 2.0, BA: 7.0, CE: 4.5,
     DF: 1.5, ES: 2.0, GO: 3.2, MA: 3.0, MT: 1.6, MS: 1.3,
@@ -97,64 +98,129 @@ function repartir(quantidade, pesos) {
     return resultado;
 }
 
+
 function prepararEstados() {
     if (turno === 1 || unidades.length === 0) {
-        const totais = repartir(total, UFS.map(([uf]) => PESOS_UF[uf]));
-        unidades = UFS.map(([uf, nome], i) => ({ uf, nome, total: totais[i] }));
+        const totais = repartir(
+            total,
+            UFS.map(([uf]) => PESOS_UF[uf])
+        );
+
+        unidades = UFS.map(([uf, nome], i) => ({
+            uf,
+            nome,
+            total: totais[i]
+        }));
     }
 
     unidades.forEach(u => {
-        u.inicio = Math.random() * 0.50;
-        u.fim = Math.min(1, u.inicio + 0.30 + Math.random() * 0.50);
-        u.curva = 0.7 + Math.random() * 1.4;
-
-        // Uma preferência-base por UF; cada bloco recebe variações próprias.
-        const preferencias = candidatos.map(() => 0.5 + Math.random() * 1.5);
-        const tamanhos = repartir(u.total, [1, 1, 1, 1, 1]);
-        u.blocos = tamanhos.map((quantidade, indice) => {
-            const pesos = preferencias.map((peso, i) => {
-                const variacao = 0.25 + Math.random() * 2.3;
-                const tendencia = 1 + Math.sin(indice * 1.5 + i * 2) * 0.35;
-                return peso * variacao * tendencia;
-            });
-            return { total: quantidade, finais: repartir(quantidade, pesos) };
-        });
-        u.finais = candidatos.map((_, i) =>
-            u.blocos.reduce((soma, bloco) => soma + bloco.finais[i], 0)
+        // Cada estado possui seu próprio ritmo
+        u.inicio = Math.random() * 0.25;
+        u.fim = Math.min(
+            1,
+            u.inicio + 0.55 + Math.random() * 0.20
         );
+
+        u.curva = 0.85 + Math.random() * 0.30;
+
+        // Preferências gerais do estado
+        const preferencias = candidatos.map(() =>
+            0.5 + Math.random() * 1.5
+        );
+
+        // Divide os votos em 100 blocos
+        const tamanhos = repartir(
+            u.total,
+            Array(TOTAL_BLOCOS).fill(1)
+        );
+
+        u.blocos = tamanhos.map(quantidade => {
+            // Cada bloco tem pequenas oscilações
+            const pesos = preferencias.map(peso => {
+                const variacao =
+                    0.65 + Math.random() * 0.70;
+
+                return peso * variacao;
+            });
+
+            return {
+                total: quantidade,
+                finais: repartir(quantidade, pesos)
+            };
+        });
+
+        // Resultado final de cada candidato na UF
+        u.finais = candidatos.map((_, i) =>
+            u.blocos.reduce(
+                (soma, bloco) => soma + bloco.finais[i],
+                0
+            )
+        );
+
         u.votos = candidatos.map(() => 0);
         u.apurados = 0;
         u.concluida = false;
     });
 }
 
+
+
 function apurarEstados(momento) {
-    candidatos.forEach(c => { c.votos = 0; });
+    candidatos.forEach(c => {
+        c.votos = 0;
+    });
+
     unidades.forEach(u => {
-        const base = momento >= 1 ? 1 : Math.min(1, Math.max(0,
-            (momento - u.inicio) / (u.fim - u.inicio)));
+        const base = momento >= 1
+            ? 1
+            : Math.min(
+                1,
+                Math.max(
+                    0,
+                    (momento - u.inicio) /
+                    (u.fim - u.inicio)
+                )
+            );
+
         const fracao = base ** u.curva;
-        const meta = momento >= 1 ? u.total : Math.floor(u.total * fracao);
+
+        const meta = momento >= 1
+            ? u.total
+            : Math.floor(u.total * fracao);
+
         u.votos = candidatos.map(() => 0);
         u.apurados = 0;
+
         let restantes = meta;
+
         for (const bloco of u.blocos) {
-            const quantidade = Math.min(restantes, bloco.total);
+            const quantidade = Math.min(
+                restantes,
+                bloco.total
+            );
+
             restantes -= quantidade;
-            if (quantidade <= 0) continue;
-            // Apuração parcial proporcional dentro do bloco; blocos distintos
-            // produzem oscilações e possíveis viradas no mesmo estado.
+
+            if (quantidade <= 0) {
+                break;
+            }
+
             const votosBloco = quantidade === bloco.total
-                ? bloco.finais : repartir(quantidade, bloco.finais);
-            votosBloco.forEach((v, i) => {
-                u.votos[i] += v;
-                candidatos[i].votos += v;
+                ? bloco.finais
+                : repartir(quantidade, bloco.finais);
+
+            votosBloco.forEach((votos, i) => {
+                u.votos[i] += votos;
+                candidatos[i].votos += votos;
             });
+
             u.apurados += quantidade;
         }
+
         u.concluida = meta === u.total;
     });
 }
+
 
 function apurar() {
     clearInterval(intervalo);
